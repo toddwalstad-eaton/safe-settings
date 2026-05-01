@@ -170,6 +170,15 @@ class StandaloneSettings extends Settings {
     }))
   }
 
+  // --- Org-level override (skip org rulesets - requires admin:org permission) ---
+
+  async updateOrg () {
+    // Organization-level rulesets require org admin permissions that token-based
+    // auth typically doesn't have. Rulesets defined in settings.yml are still
+    // applied at the repo level through updateRepos → childPluginsList.
+    this.log.debug('Standalone mode: skipping org-level rulesets (requires org admin)')
+  }
+
   // --- Repo listing override (use org API instead of /installation/repositories) ---
 
   async eachRepositoryRepos (github, log) {
