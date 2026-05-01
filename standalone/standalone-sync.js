@@ -170,6 +170,15 @@ class StandaloneSettings extends Settings {
     }))
   }
 
+  // --- Org-level override (skip org rulesets - requires admin:org permission) ---
+
+  async updateOrg () {
+    // Organization-level rulesets require org admin permissions that token-based
+    // auth typically doesn't have. Rulesets defined in settings.yml are still
+    // applied at the repo level through updateRepos → childPluginsList.
+    this.log.debug('Standalone mode: skipping org-level rulesets (requires org admin)')
+  }
+
   // --- Repo listing override (use org API instead of /installation/repositories) ---
 
   async eachRepositoryRepos (github, log) {
@@ -273,6 +282,35 @@ async function main () {
       deploymentConfig = yaml.load(fs.readFileSync(deploymentConfigPath, 'utf8')) || deploymentConfig
     } else {
       logger.debug(`No deployment config at: ${deploymentConfigPath}, using defaults`)
+    }
+
+    // Auto-populate restrictedRepos.include if it's an empty array
+    // This collects repos from subOrgConfig and repo-specific config files
+    if (deploymentConfig.restrictedRepos &&
+        Array.isArray(deploymentConfig.restrictedRepos.include) &&
+        deploymentConfig.restrictedRepos.include.length === 0) {
+      const autoInclude = new Set()
+
+      // Add repos from subOrgConfig
+      const subOrgConfig = deploymentConfig.subOrgConfig || {}
+      for (const [suborgName, cfg] of Object.entries(subOrgConfig)) {
+        if (cfg.repos) {
+          cfg.repos.forEach(r => autoInclude.add(r))
+          logger.debug(`Added ${cfg.repos.length} repos from suborg: ${suborgName}`)
+        }
+      }
+
+      // Add repos with explicit config files in repos/
+      const reposDir = path.join(configBasePath, 'repos')
+      if (fs.existsSync(reposDir)) {
+        fs.readdirSync(reposDir)
+          .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+          .forEach(f => autoInclude.add(path.basename(f, path.extname(f))))
+      }
+
+      deploymentConfig.restrictedRepos.include = Array.from(autoInclude)
+      logger.info(`Auto-generated restrictedRepos.include with ${deploymentConfig.restrictedRepos.include.length} repos`)
+      logger.debug(`Include list: ${deploymentConfig.restrictedRepos.include.join(', ')}`)
     }
 
     // Load the main settings.yml (org-level config)
