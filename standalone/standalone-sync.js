@@ -226,11 +226,16 @@ class StandaloneSettings extends Settings {
       if (r.type === 'ERROR') {
         this.log.error(`  [${r.plugin}] ${r.repo}: ${r.action?.msg || r.action}`)
       } else if (r.action?.additions || r.action?.deletions || r.action?.modifications) {
+        // NopCommand with diff info (dry-run mode)
         const parts = []
         if (r.action.additions) parts.push(`additions: ${JSON.stringify(r.action.additions)}`)
         if (r.action.modifications) parts.push(`modifications: ${JSON.stringify(r.action.modifications)}`)
         if (r.action.deletions) parts.push(`deletions: ${JSON.stringify(r.action.deletions)}`)
         this.log.info(`  [${r.plugin}] ${parts.join(', ')}`)
+      } else if (r.status && r.url) {
+        // Raw Octokit API response (non-nop mode) — log the action taken
+        const method = r.url ? (r.status === 201 ? 'Created' : 'Updated') : 'Applied'
+        this.log.info(`  ${method}: ${r.url}`)
       }
     }
 
@@ -311,7 +316,16 @@ async function main () {
     logger.info(`Dry run: ${nop ? 'YES' : 'NO'}`)
 
     // Create Octokit instance with token authentication
-    const octokit = new Octokit({ auth: TOKEN })
+    // Use a custom logger to suppress noisy HTTP-level request logging
+    const octokit = new Octokit({
+      auth: TOKEN,
+      log: {
+        debug: () => {},
+        info: () => {},
+        warn: (msg) => logger.warn(msg),
+        error: (msg) => logger.error(msg)
+      }
+    })
 
     // Test authentication
     logger.debug('Testing authentication...')
