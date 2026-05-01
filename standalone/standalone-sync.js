@@ -275,6 +275,35 @@ async function main () {
       logger.debug(`No deployment config at: ${deploymentConfigPath}, using defaults`)
     }
 
+    // Auto-populate restrictedRepos.include if it's an empty array
+    // This collects repos from subOrgConfig and repo-specific config files
+    if (deploymentConfig.restrictedRepos &&
+        Array.isArray(deploymentConfig.restrictedRepos.include) &&
+        deploymentConfig.restrictedRepos.include.length === 0) {
+      const autoInclude = new Set()
+
+      // Add repos from subOrgConfig
+      const subOrgConfig = deploymentConfig.subOrgConfig || {}
+      for (const [suborgName, cfg] of Object.entries(subOrgConfig)) {
+        if (cfg.repos) {
+          cfg.repos.forEach(r => autoInclude.add(r))
+          logger.debug(`Added ${cfg.repos.length} repos from suborg: ${suborgName}`)
+        }
+      }
+
+      // Add repos with explicit config files in repos/
+      const reposDir = path.join(configBasePath, 'repos')
+      if (fs.existsSync(reposDir)) {
+        fs.readdirSync(reposDir)
+          .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+          .forEach(f => autoInclude.add(path.basename(f, path.extname(f))))
+      }
+
+      deploymentConfig.restrictedRepos.include = Array.from(autoInclude)
+      logger.info(`Auto-generated restrictedRepos.include with ${deploymentConfig.restrictedRepos.include.length} repos`)
+      logger.debug(`Include list: ${deploymentConfig.restrictedRepos.include.join(', ')}`)
+    }
+
     // Load the main settings.yml (org-level config)
     const settingsPath = path.join(configBasePath, env.SETTINGS_FILE_PATH)
     if (!fs.existsSync(settingsPath)) {
