@@ -275,6 +275,40 @@ async function main () {
       logger.debug(`No deployment config at: ${deploymentConfigPath}, using defaults`)
     }
 
+    // Auto-populate restrictedRepos.include if it's an empty array.
+    // Builds the list from suborgrepos in suborg YAML files + repo config filenames.
+    if (deploymentConfig.restrictedRepos &&
+        Array.isArray(deploymentConfig.restrictedRepos.include) &&
+        deploymentConfig.restrictedRepos.include.length === 0) {
+      const autoInclude = new Set()
+
+      // Add repos from suborgrepos in suborg YAML files
+      const suborgsDir = path.join(configBasePath, 'suborgs')
+      if (fs.existsSync(suborgsDir)) {
+        const suborgFiles = fs.readdirSync(suborgsDir)
+          .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+        for (const file of suborgFiles) {
+          const suborgData = yaml.load(fs.readFileSync(path.join(suborgsDir, file), 'utf8')) || {}
+          if (suborgData.suborgrepos) {
+            suborgData.suborgrepos.forEach(r => autoInclude.add(r))
+            logger.debug(`Added ${suborgData.suborgrepos.length} repos from suborg: ${path.basename(file, path.extname(file))}`)
+          }
+        }
+      }
+
+      // Add repos with explicit config files in repos/
+      const reposDir = path.join(configBasePath, 'repos')
+      if (fs.existsSync(reposDir)) {
+        fs.readdirSync(reposDir)
+          .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+          .forEach(f => autoInclude.add(path.basename(f, path.extname(f))))
+      }
+
+      deploymentConfig.restrictedRepos.include = Array.from(autoInclude)
+      logger.info(`Auto-generated restrictedRepos.include with ${deploymentConfig.restrictedRepos.include.length} repos`)
+      logger.debug(`Include list: ${deploymentConfig.restrictedRepos.include.join(', ')}`)
+    }
+
     // Load the main settings.yml (org-level config)
     const settingsPath = path.join(configBasePath, env.SETTINGS_FILE_PATH)
     if (!fs.existsSync(settingsPath)) {
