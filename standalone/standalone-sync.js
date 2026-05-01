@@ -195,6 +195,51 @@ class StandaloneSettings extends Settings {
     }))
   }
 
+  // --- Progress tracking (log each repo processed in non-nop mode) ---
+
+  async checkAndProcessRepo (owner, name) {
+    if (this.isRestricted(name)) {
+      return null
+    }
+    this.log.info(`Processing: ${name}`)
+    this._processed = (this._processed || 0) + 1
+    try {
+      await this.updateRepos({ owner, repo: name })
+    } catch (e) {
+      this._failed = (this._failed || 0) + 1
+      this.log.error(`  Failed: ${name} - ${e.message}`)
+      this.errors.push({ repo: name, msg: e.message })
+    }
+  }
+
+  /**
+   * Override appendToResults to log what's being applied in real-time.
+   * In nop mode, also accumulates results for the dry-run summary.
+   */
+  appendToResults (res) {
+    if (!res) return
+
+    const input = (!Array.isArray(res) && typeof res === 'object') ? [res] : res
+    const results = input.flat(3).filter(Boolean)
+
+    for (const r of results) {
+      if (r.type === 'ERROR') {
+        this.log.error(`  [${r.plugin}] ${r.repo}: ${r.action?.msg || r.action}`)
+      } else if (r.action?.additions || r.action?.deletions || r.action?.modifications) {
+        const parts = []
+        if (r.action.additions) parts.push(`additions: ${JSON.stringify(r.action.additions)}`)
+        if (r.action.modifications) parts.push(`modifications: ${JSON.stringify(r.action.modifications)}`)
+        if (r.action.deletions) parts.push(`deletions: ${JSON.stringify(r.action.deletions)}`)
+        this.log.info(`  [${r.plugin}] ${parts.join(', ')}`)
+      }
+    }
+
+    // In nop mode, still accumulate for the dry-run summary
+    if (this.nop) {
+      this.results = this.results.concat(results)
+    }
+  }
+
   // --- Result handling override (print to stdout instead of creating check runs) ---
 
   async createCheckRun () {
@@ -204,9 +249,16 @@ class StandaloneSettings extends Settings {
 
   async handleResults () {
     if (!this.nop) {
-      // In non-nop mode, just print a summary
-      if (this.errors.length > 0) {
-        this.log.error(`Sync completed with ${this.errors.length} error(s):`)
+      // In non-nop mode, print a summary of what was done
+      const processed = this._processed || 0
+      const failed = this._failed || 0
+      const succeeded = processed - failed
+
+      this.log.info('\n========== SYNC SUMMARY ==========')
+      this.log.info(`Repos processed: ${processed}`)
+      this.log.info(`Succeeded: ${succeeded}`)
+      if (failed > 0) {
+        this.log.error(`Failed: ${failed}`)
         this.errors.forEach(err => {
           this.log.error(`  - [${err.repo || 'unknown'}] ${err.msg || err.error || JSON.stringify(err)}`)
         })
