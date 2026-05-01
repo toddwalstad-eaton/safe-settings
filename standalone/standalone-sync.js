@@ -316,14 +316,14 @@ async function main () {
     logger.info(`Dry run: ${nop ? 'YES' : 'NO'}`)
 
     // Create Octokit instance with token authentication
-    // Use a custom logger to suppress noisy HTTP-level request logging
+    // Suppress Octokit's HTTP-level request logging — plugins handle their own errors
     const octokit = new Octokit({
       auth: TOKEN,
       log: {
         debug: () => {},
         info: () => {},
-        warn: (msg) => logger.warn(msg),
-        error: (msg) => logger.error(msg)
+        warn: () => {},
+        error: () => {}
       }
     })
 
